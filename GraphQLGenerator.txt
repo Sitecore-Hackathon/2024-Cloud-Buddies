@@ -1,0 +1,88 @@
+<#
+   .SYNOPSIS
+       Generate GraphQL query
+#>
+$database = "master"
+$root = Get-Item -Path (@{$true="$($database):\content"; $false="$($database):\content"}[(Test-Path -Path "$($database):\content")])
+$radioOptions = [ordered]@{
+   "<strong>Use Direct Children</strong>" = 0
+   "<strong>Use Desc</strong>" = 1
+}
+$props = @{
+   Parameters = @(
+       @{Name="root"; Title="Choose the root"; Tooltip="Root item"; Mandatory = $true; },
+       @{
+           Name = "radioSelector"
+           Title = "Layout Type Select"
+           Editor = "radio"
+           Options = $radioOptions
+           Tooltip = "Select an option if you want to update on Final Layout"
+       }
+   )
+   Title = "Add Rendering"
+   Description = "Add Rendering"
+   Width = 550
+   Height = 300
+   ShowHints = $true
+}
+$result = Read-Variable @props
+if($result -eq "cancel") {
+   exit
+}
+ $location = get-location
+ $gtItem = Get-Item -Path $root.ProviderPath
+ Function GetCompl() {
+$query = "
+   query Query($('$datasource'): String!, $('$language'): String!) {
+datasource: item(path: $('$datasource'), language: $('$language')) {
+id
+name
+... on $($gtItem.TemplateName -replace(' ')) {
+ $(GetChildItemJson $gtItem)
+}
+ }
+}"
+return $query
+}
+$query = ""
+Function GetChildItemJson([Sitecore.Data.Items.Item]$item) {
+if($item -ne $null) {
+if($item.HasChildren) {
+$childHasChild = $item.Children | Where-Object { $_.HasChildren } | Select -index 0
+if($childHasChild -ne $null) {
+ $item = $childHasChild
+}
+else {
+   $singleI = $item.Children | Select -index 0
+$item = $singleI
+}
+}
+else {
+$item = $null
+}
+if($item -ne $null) {
+   $query +="
+   children {
+       results {
+           id
+           name
+           ... on $($item.Name -replace (' ')) {
+               id
+               name
+               $(GetChildItemJson $item)
+           }
+       }
+   }"
+}
+}
+return $query
+}
+$showmessage = GetCompl
+$message = GetCompl | Out-Download -Name GraphQLQuery.json
+$proceed = Show-Confirm -Title $showmessage
+if ($proceed -ne 'yes') {
+    Write-Host "Canceling"
+    Exit
+}
+Write-Host "Proceeding with execution"
+Close-Window
